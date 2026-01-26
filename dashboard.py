@@ -11,7 +11,7 @@ st.set_page_config(
     page_icon="💎"
 )
 
-# --- Estilo CSS Premium (Mantendo o seu estilo) ---
+# --- Estilo CSS Premium ---
 st.markdown("""
 <style>
     .metric-card {
@@ -51,14 +51,13 @@ st.markdown("""
 # --- Função de Carregamento Inteligente ---
 @st.cache_data
 def load_data():
-    # Tenta ler o Excel ou CSV (garante que funciona com o que você subir)
     file_path = 'dados.xlsx' 
     try:
         df = pd.read_excel(file_path, engine='openpyxl')
     except:
         try:
-            # Fallback para CSV se necessário
-            df = pd.read_csv('dados.csv') # Ajuste se subir como csv
+            # Fallback para CSV (Adaptado para o arquivo que você mandou)
+            df = pd.read_csv('dados.csv') 
         except:
             st.error("Erro ao ler dados. Verifique se 'dados.xlsx' está no GitHub.")
             st.stop()
@@ -66,17 +65,21 @@ def load_data():
     # 1. Limpeza de Nomes de Coluna
     df.columns = df.columns.astype(str).str.strip().str.lower()
 
-    # 2. Mapeamento Automático (Detecta a nova coluna 'valor original')
+    # 2. Mapeamento Automático
     col_data = next((c for c in df.columns if 'vencimento' in c or 'data' in c), 'Data')
     
-    # A coluna 'Valor da Parcela ' (com ajuste) é o que deve ser pago
+    # 'Valor da Parcela' = O que deve ser pago (Calculado)
     col_valor_ajustado = next((c for c in df.columns if 'valor da parcela' in c), 'Valor Ajustado')
     
-    # A coluna 'Valor Original' (sem ajuste) é para exibição
+    # 'Valor Original' = Base contratual
     col_valor_base = next((c for c in df.columns if 'valor original' in c), 'Valor Base')
     
     col_pago = next((c for c in df.columns if 'pago' in c or 'quitado' in c), 'Pago')
     col_status = next((c for c in df.columns if 'status' in c), 'Status')
+    
+    # Nova Coluna de Porcentagem (Apenas visual)
+    col_porc = next((c for c in df.columns if 'correção' in c or 'ipca' in c), 'Correcao')
+    
     col_hist = next((c for c in df.columns if 'hist' in c or 'obs' in c), 'Historico')
 
     # Renomeia
@@ -86,6 +89,7 @@ def load_data():
         col_valor_base: 'Valor Base',
         col_pago: 'Pago', 
         col_status: 'Status',
+        col_porc: 'Correcao',
         col_hist: 'Historico'
     })
 
@@ -99,6 +103,12 @@ def load_data():
     df['Valor Base'] = df['Valor Base'].apply(to_float).fillna(0)
     df['Pago'] = df['Pago'].apply(to_float).fillna(0)
     
+    # Tratamento da Coluna de Correção (Texto puro para não quebrar formatação "0,5% + 1%")
+    if 'Correcao' in df.columns:
+        df['Correcao'] = df['Correcao'].astype(str).replace('nan', '-')
+    else:
+        df['Correcao'] = '-'
+
     # Datas
     df['Data'] = pd.to_datetime(df['Data'], errors='coerce')
     df = df.dropna(subset=['Data']).sort_values('Data')
@@ -113,14 +123,13 @@ df = load_data()
 # --- Cálculos de Negócio ---
 hoje = pd.Timestamp.now().normalize()
 
-# 1. Total Contratado (FIXO CONFORME SEU PEDIDO)
-# Mesmo que a soma dê diferente, mostraremos esse valor oficial.
+# 1. Total Contratado (FIXO CONFORME PEDIDO)
 total_contratado = 1362800.00 
 
 # 2. Total Já Pago
 total_pago = df['Pago'].sum()
 
-# 3. Saldo da Parcela (Baseado no valor AJUSTADO, pois é o que se paga de fato)
+# 3. Saldo da Parcela (Baseado no valor AJUSTADO)
 df['Saldo_Parcela'] = df['Valor Ajustado'] - df['Pago']
 df['Saldo_Parcela'] = df['Saldo_Parcela'].apply(lambda x: x if x > 0 else 0)
 
@@ -128,7 +137,7 @@ df['Saldo_Parcela'] = df['Saldo_Parcela'].apply(lambda x: x if x > 0 else 0)
 total_pendente_atraso = df[df['Data'] < hoje]['Saldo_Parcela'].sum()
 total_a_faturar = df[df['Data'] >= hoje]['Saldo_Parcela'].sum()
 
-# Progresso (Pago sobre o Total Contratado Fixo)
+# Progresso
 progresso = (total_pago / total_contratado * 100)
 
 # --- DASHBOARD ---
@@ -148,7 +157,7 @@ def kpi(col, label, value, sub, border_class):
     </div>
     """, unsafe_allow_html=True)
 
-kpi(c1, "Total Contratado", total_contratado, "Valor Original do Contrato (Base)", "border-blue")
+kpi(c1, "Total Contratado", total_contratado, "Valor Original do Contrato", "border-blue")
 kpi(c2, "Total Quitado", total_pago, f"{progresso:.1f}% amortizado do contrato", "border-green")
 kpi(c3, "Pendente / Vencido / Atrasado", total_pendente_atraso, "Atenção Imediata", "border-red")
 kpi(c4, "A Faturar (Pré-Correção)", total_a_faturar, "Fluxo de Caixa Futuro", "border-yellow")
@@ -162,10 +171,8 @@ with col_g1:
     st.subheader("📅 Cronograma de Pagamentos")
     fig = go.Figure()
     
-    # Barra Verde: Parte Paga
     fig.add_trace(go.Bar(x=df['Data'], y=df['Pago'], name='Valor Quitado', marker_color='#27ae60'))
     
-    # Barra Cinza/Vermelha: Parte que Falta
     colors = ['#c0392b' if d < hoje else '#95a5a6' for d in df['Data']]
     fig.add_trace(go.Bar(x=df['Data'], y=df['Saldo_Parcela'], name='Saldo em Aberto', marker_color=colors))
     
@@ -196,20 +203,23 @@ st.subheader("📋 Detalhamento Analítico")
 # Tabela
 df_show = df.copy()
 df_show['Vencimento'] = df_show['Data'].dt.strftime('%d/%m/%Y')
-df_show['Valor Base'] = df_show['Valor Base'].apply(lambda x: f"R$ {x:,.2f}") # Coluna Nova
+df_show['Valor Base'] = df_show['Valor Base'].apply(lambda x: f"R$ {x:,.2f}")
 df_show['Valor Ajustado (Devido)'] = df_show['Valor Ajustado'].apply(lambda x: f"R$ {x:,.2f}")
 df_show['Valor Pago'] = df_show['Pago'].apply(lambda x: f"R$ {x:,.2f}")
 df_show['Saldo Aberto'] = df_show['Saldo_Parcela'].apply(lambda x: f"R$ {x:,.2f}")
 
-cols_order = ['Vencimento', 'Valor Base', 'Valor Ajustado (Devido)', 'Valor Pago', 'Saldo Aberto', 'Status', 'Historico']
+# Adicionei 'Correcao' na ordem de exibição
+cols_order = ['Vencimento', 'Valor Base', 'Correcao', 'Valor Ajustado (Devido)', 'Valor Pago', 'Saldo Aberto', 'Status', 'Historico']
 
 st.dataframe(
     df_show[cols_order],
     use_container_width=True,
     hide_index=True,
     column_config={
-        "Historico": st.column_config.TextColumn("Histórico", width="large"),
+        "Historico": st.column_config.TextColumn("Histórico", width="medium"),
         "Status": st.column_config.Column("Status", width="small"),
-        "Valor Base": st.column_config.Column("Vlr Original (Base)", help="Valor antes da correção IPCA+1%")
+        "Valor Base": st.column_config.Column("Vlr Original (Base)", help="Valor inicial da parcela"),
+        "Correcao": st.column_config.Column("Correção (IPCA+1%)", help="Taxa aplicada sobre o valor base", width="small"),
+        "Valor Ajustado (Devido)": st.column_config.Column("Vlr Final (Devido)", help="Valor com juros inclusos")
     }
 )
