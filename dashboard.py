@@ -24,7 +24,7 @@ st.title("🔧 Dashboard Financeiro: Ajuste e Visualização")
 
 # --- 1. Carregamento Seguro ---
 # Vamos ler o arquivo SEM pular linhas primeiro, pra você ver o que está acontecendo
-file_path = 'dados.xlsx'
+file_path = 'Confissão de Divida - Syssant.xlsx'
 
 try:
     # Lê as primeiras 15 linhas cruas para calibração
@@ -135,3 +135,4 @@ st.dataframe(
     df[['Data', 'Valor', 'Pago', 'Status']].style.format({'Valor': 'R$ {:,.2f}', 'Pago': 'R$ {:,.2f}'}),
     use_container_width=True
 )
+
