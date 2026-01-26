@@ -158,8 +158,8 @@ def kpi(col, label, value, sub, border_class):
 
 kpi(c1, "Total Contratado", total_contratado, "Valor Original do Contrato", "border-blue")
 kpi(c2, "Total Quitado", total_pago, f"{progresso:.1f}% do total amortizado", "border-green")
-kpi(c3, "Pendente / Vencido", total_pendente_atraso, "Atenção Imediata", "border-red")
-kpi(c4, "A Faturar (Futuro)", total_a_faturar, "Fluxo de Caixa Futuro", "border-yellow")
+kpi(c3, "Pendente / Vencido / Atrasado", total_pendente_atraso, "Atenção Imediata", "border-red")
+kpi(c4, "A Faturar (Pré-Correção de IPCA + 1%)", total_a_faturar, "Fluxo de Caixa Futuro", "border-yellow")
 
 st.write("")
 
@@ -244,3 +244,4 @@ st.dataframe(
         )
     }
 )
+
