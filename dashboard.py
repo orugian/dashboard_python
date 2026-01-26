@@ -4,131 +4,177 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 
-# --- Configuração da Página (Modo Apresentação) ---
+# --- Configuração da Página ---
 st.set_page_config(
-    page_title="Relatório Executivo: Syssant",
+    page_title="Gestão de Dívida: Syssant",
     layout="wide",
-    page_icon="🏢",
-    initial_sidebar_state="collapsed" # Esconde a barra lateral pra ficar mais limpo pro chefe
+    page_icon="📊",
+    initial_sidebar_state="expanded" # Barra lateral aberta para filtros
 )
 
-# --- CSS Estilo "Impresso na Forbes" ---
+# --- CSS (Design Limpo e Profissional) ---
 st.markdown("""
 <style>
-    .main { background-color: #fdfdfd; }
-    h1 { color: #1e3799; font-family: 'Helvetica', sans-serif; }
-    .kpi-box {
-        background: white;
-        padding: 20px;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        text-align: center;
-        border-bottom: 4px solid #1e3799;
-    }
-    .kpi-label { font-size: 14px; color: #7f8fa6; text-transform: uppercase; letter-spacing: 1px;}
-    .kpi-val { font-size: 32px; font-weight: bold; color: #2f3640; }
-    .stDataFrame { border-radius: 10px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .main { background-color: #f8f9fa; }
+    .stMetric { background-color: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    h1, h2, h3 { color: #2c3e50; font-family: 'Segoe UI', sans-serif; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- Carregamento Automático (O Segredo) ---
+# --- Carregamento e Inteligência de Dados ---
 @st.cache_data
 def get_data():
-    # NOME EXATO DO ARQUIVO (Garanta que no GitHub está com esse nome exato)
-    file_path = 'Confissão de Divida - Syssant.xlsx'
+    file_path = 'dados.xlsx' # Mantivemos o nome simples pra não dar erro
     
     try:
-        # skiprows=3 para pular o cabeçalho sujo
+        # Tenta ler o Excel. skiprows=3 assume que o cabeçalho está na linha 4
         df = pd.read_excel(file_path, engine='openpyxl', skiprows=3)
     except FileNotFoundError:
-        st.error(f"🚨 ERRO CRÍTICO: O arquivo '{file_path}' não foi encontrado no servidor.")
+        st.error(f"🚨 Arquivo '{file_path}' não encontrado. Verifique o GitHub.")
+        st.stop()
+    except Exception as e:
+        st.error(f"Erro ao ler Excel: {e}")
         st.stop()
 
-    # --- LIMPEZA E TRATAMENTO (CORRIGIDO E BLINDADO) ---
-    # 1. Identificar colunas dinamicamente
-    cols = df.columns.str.lower()
-    mapa = {
-        'data': next((c for c in df.columns if 'vencimento' in c.lower() or 'data' in c.lower()), 'Vencimento'),
-        'valor': next((c for c in df.columns if 'valor' in c.lower() or 'original' in c.lower()), 'Valor Original'),
-        'status': next((c for c in df.columns if 'status' in c.lower() or 'situacao' in c.lower()), 'Status'),
-        'pago': next((c for c in df.columns if 'pago' in c.lower()), 'Valor Pago')
-    }
-    df = df.rename(columns={mapa['data']: 'Data', mapa['valor']: 'Valor', mapa['status']: 'Status', mapa['pago']: 'Pago'})
+    # --- Tratamento de Colunas (O Pulo do Gato para não dar Erro) ---
+    # Normaliza nomes das colunas (tudo minusculo)
+    df.columns = df.columns.astype(str).str.lower().str.strip()
+    
+    # Procura colunas chaves por palavras-chave
+    col_data = next((c for c in df.columns if 'vencimento' in c or 'data' in c), None)
+    col_valor = next((c for c in df.columns if 'valor' in c or 'original' in c), None)
+    col_pago = next((c for c in df.columns if 'pago' in c or 'quitado' in c), None)
+    col_status = next((c for c in df.columns if 'status' in c or 'situação' in c or 'situacao' in c), None)
 
-    # 2. Limpar Moeda (Versão INDESTRUTÍVEL)
-    # Essa função aguenta qualquer sujeira (texto, traços, espaços) sem quebrar o site
+    # Se não achar a coluna Data ou Valor, não tem como trabalhar
+    if not col_data or not col_valor:
+        st.error("⚠️ Não consegui identificar as colunas de 'Data' ou 'Valor' no Excel. Verifique os nomes.")
+        st.write("Colunas encontradas:", df.columns.tolist())
+        st.stop()
+
+    # Renomeia para o padrão do sistema
+    rename_map = {col_data: 'Data', col_valor: 'Valor'}
+    if col_pago: rename_map[col_pago] = 'Pago'
+    if col_status: rename_map[col_status] = 'Status'
+    
+    df = df.rename(columns=rename_map)
+
+    # --- Limpeza de Valores ---
     def clean_money(x):
         if isinstance(x, str):
-            # Remove R$, espaços, pontos e troca vírgula por ponto
-            clean_str = x.replace('R$', '').replace(' ', '').replace('.', '').replace(',', '.')
-            try:
-                return float(clean_str)
-            except ValueError:
-                # Se der erro (ex: celula com traço '-' ou texto), retorna ZERO
-                return 0.0
-        return x
+            clean = x.replace('R$', '').replace(' ', '').replace('.', '').replace(',', '.')
+            try: return float(clean)
+            except: return 0.0
+        return float(x) if isinstance(x, (int, float)) else 0.0
 
-    # Aplica a limpeza com segurança
-    if df['Valor'].dtype == 'object':
-        df['Valor'] = df['Valor'].apply(clean_money)
+    df['Valor'] = df['Valor'].apply(clean_money)
     
-    if df['Pago'].dtype == 'object':
-        df['Pago'] = df['Pago'].apply(clean_money)
-        
-    # Converte final para garantir que é número (backup de segurança extra)
-    df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
-    df['Pago'] = pd.to_numeric(df['Pago'], errors='coerce').fillna(0)
-    
-    # Tratamento de Data
+    # Se não existe coluna 'Pago', cria zerada
+    if 'Pago' not in df.columns:
+        df['Pago'] = 0.0
+    else:
+        df['Pago'] = df['Pago'].apply(clean_money).fillna(0)
+
+    # Se não existe coluna 'Status', cria baseada no pagamento (Inteligência Artificial de Bolso)
+    if 'Status' not in df.columns:
+        # Se pagou algo, considera Pago, senão Pendente
+        df['Status'] = df.apply(lambda row: 'Pago' if row['Pago'] >= row['Valor'] * 0.9 else 'Pendente', axis=1)
+    else:
+        # Garante que status vazio seja 'Pendente'
+        df['Status'] = df['Status'].fillna('Pendente').astype(str)
+
+    # Datas
     df['Data'] = pd.to_datetime(df['Data'], dayfirst=True, errors='coerce')
     df = df.dropna(subset=['Data']).sort_values('Data')
-    
+
     return df
 
-df = get_data()
+# Carrega os dados
+df_full = get_data()
 
-# --- Lógica do Dashboard ---
-total_bruto = df['Valor'].sum()
-total_pago = df['Pago'].sum()
-saldo_devedor = total_bruto - total_pago
-progresso = (total_pago / total_bruto) if total_bruto > 0 else 0
+# --- BARRA LATERAL (Filtros Interativos) ---
+st.sidebar.header("🔍 Filtros")
 
-# --- Interface Visual ---
-st.title("📊 Relatório de Posição Financeira")
-st.markdown(f"**Cliente:** Syssant | **Referência:** {datetime.now().strftime('%B/%Y')}")
-st.markdown("---")
+# Filtro de Status
+status_options = df_full['Status'].unique()
+selected_status = st.sidebar.multiselect("Status da Parcela", options=status_options, default=status_options)
 
-# KPIs
-col1, col2, col3 = st.columns(3)
-col1.markdown(f"""<div class="kpi-box"><div class="kpi-label">Dívida Total Contratada</div><div class="kpi-val">R$ {total_bruto:,.2f}</div></div>""", unsafe_allow_html=True)
-col2.markdown(f"""<div class="kpi-box"><div class="kpi-label">Amortizado (Pago)</div><div class="kpi-val" style="color:#44bd32">R$ {total_pago:,.2f}</div></div>""", unsafe_allow_html=True)
-col3.markdown(f"""<div class="kpi-box"><div class="kpi-label">Saldo em Aberto</div><div class="kpi-val" style="color:#c23616">R$ {saldo_devedor:,.2f}</div></div>""", unsafe_allow_html=True)
+# Filtro de Data (Ano)
+years = sorted(df_full['Data'].dt.year.unique())
+selected_years = st.sidebar.multiselect("Ano de Vencimento", options=years, default=years)
 
-st.write("") # Espaço
+# Aplica Filtros
+df = df_full[
+    (df_full['Status'].isin(selected_status)) & 
+    (df_full['Data'].dt.year.isin(selected_years))
+]
 
-# Gráficos
-c_chart1, c_chart2 = st.columns([2, 1])
+# --- KPIs Principais ---
+st.title("📊 Painel de Controle Financeiro")
 
-with c_chart1:
-    st.subheader("Cronograma de Desembolso")
-    # Gráfico de barras combinadas
-    fig = go.Figure()
-    fig.add_trace(go.Bar(name='Valor Parcela', x=df['Data'], y=df['Valor'], marker_color='#dcdde1'))
-    fig.add_trace(go.Bar(name='Pago', x=df['Data'], y=df['Pago'], marker_color='#44bd32'))
-    fig.update_layout(barmode='overlay', template='plotly_white', height=400, legend=dict(orientation="h", y=1.1))
-    st.plotly_chart(fig, use_container_width=True)
+total_divida = df_full['Valor'].sum() # Valor total independente do filtro (para referência)
+total_filtrado = df['Valor'].sum()
+pago_filtrado = df['Pago'].sum()
+saldo_aberto = total_filtrado - pago_filtrado
+qtd_parcelas = len(df)
 
-with c_chart2:
-    st.subheader("Status Atual")
-    # Proteção visual caso tudo seja zero
-    vals = [total_pago, saldo_devedor]
-    if sum(vals) == 0: vals = [1, 0] # Evita gráfico vazio feio
-        
-    fig_pie = px.pie(values=vals, names=['Pago', 'Pendente'], color_discrete_sequence=['#44bd32', '#c23616'], hole=0.6)
-    fig_pie.update_layout(showlegend=True, legend=dict(orientation="h", y=-0.1), height=400)
-    fig_pie.add_annotation(text=f"{progresso:.0f}%", font_size=40, showarrow=False)
+# Métricas no topo
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Saldo em Aberto (Filtro)", f"R$ {saldo_aberto:,.2f}", delta_color="inverse")
+c2.metric("Total Quitado (Filtro)", f"R$ {pago_filtrado:,.2f}")
+c3.metric("Valor Original (Filtro)", f"R$ {total_filtrado:,.2f}")
+c4.metric("Parcelas Listadas", f"{qtd_parcelas}")
+
+st.divider()
+
+# --- VISUALIZAÇÃO GRÁFICA ---
+col_left, col_right = st.columns([2, 1])
+
+with col_left:
+    st.subheader("📈 Evolução do Saldo Devedor")
+    # Calcula o acumulado para mostrar a dívida caindo ou subindo
+    df_chart = df.sort_values('Data').copy()
+    df_chart['Acumulado'] = df_chart['Valor'].cumsum()
+    
+    # Gráfico de Linha x Barras
+    fig_evolucao = go.Figure()
+    fig_evolucao.add_trace(go.Bar(
+        x=df_chart['Data'], y=df_chart['Valor'], name='Valor da Parcela', marker_color='#bdc3c7', opacity=0.6
+    ))
+    fig_evolucao.add_trace(go.Scatter(
+        x=df_chart['Data'], y=df_chart['Pago'], mode='markers', name='Pagamentos Realizados', marker=dict(color='green', size=8)
+    ))
+    fig_evolucao.update_layout(template="plotly_white", height=400, xaxis_title="Vencimento")
+    st.plotly_chart(fig_evolucao, use_container_width=True)
+
+with col_right:
+    st.subheader("Situação Atual")
+    # Gráfico de Rosca
+    fig_pie = px.pie(df, names='Status', values='Valor', hole=0.5, color='Status',
+                     color_discrete_map={'Pago': '#2ecc71', 'Pendente': '#e74c3c', 'Atrasado': '#f1c40f'})
+    fig_pie.update_layout(height=400, legend=dict(orientation="h", y=-0.1))
     st.plotly_chart(fig_pie, use_container_width=True)
 
-# Tabela Simples
-with st.expander("Ver Detalhamento das Parcelas"):
-    st.dataframe(df[['Data', 'Valor', 'Pago', 'Status']].style.format({'Valor': 'R$ {:,.2f}', 'Pago': 'R$ {:,.2f}'}), use_container_width=True)
+# --- TABELA DETALHADA (O que você pediu) ---
+st.subheader("📋 Detalhamento das Parcelas")
+st.caption("Use os filtros na barra lateral para ver apenas o que está pendente ou pago.")
+
+# Formata para exibir bonito (R$) mas mantém o dado real
+df_display = df.copy()
+df_display['Data'] = df_display['Data'].dt.strftime('%d/%m/%Y')
+df_display['Valor'] = df_display['Valor'].apply(lambda x: f"R$ {x:,.2f}")
+df_display['Pago'] = df_display['Pago'].apply(lambda x: f"R$ {x:,.2f}")
+
+# Mostra TODAS as colunas para você ver o que tem lá
+st.dataframe(
+    df_display, 
+    use_container_width=True, 
+    hide_index=True,
+    column_config={
+        "Status": st.column_config.TextColumn(
+            "Status",
+            help="Situação atual da parcela",
+            validate="^(Pago|Pendente)$"
+        )
+    }
+)
