@@ -6,175 +6,132 @@ from datetime import datetime
 
 # --- Configuração da Página ---
 st.set_page_config(
-    page_title="Gestão de Dívida: Syssant",
+    page_title="Gestão Financeira Syssant",
     layout="wide",
-    page_icon="📊",
-    initial_sidebar_state="expanded" # Barra lateral aberta para filtros
+    page_icon="🔧"
 )
 
-# --- CSS (Design Limpo e Profissional) ---
+# --- CSS Profissional ---
 st.markdown("""
 <style>
-    .main { background-color: #f8f9fa; }
-    .stMetric { background-color: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    h1, h2, h3 { color: #2c3e50; font-family: 'Segoe UI', sans-serif; }
+    .metric-card { background-color: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 5px solid #2980b9; }
+    .metric-label { font-size: 12px; color: #7f8fa6; font-weight: bold; text-transform: uppercase; }
+    .metric-value { font-size: 24px; color: #2c3e50; font-weight: 800; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- Carregamento e Inteligência de Dados ---
-@st.cache_data
-def get_data():
-    file_path = 'dados.xlsx' # Mantivemos o nome simples pra não dar erro
+st.title("🔧 Dashboard Financeiro: Ajuste e Visualização")
+
+# --- 1. Carregamento Seguro ---
+# Vamos ler o arquivo SEM pular linhas primeiro, pra você ver o que está acontecendo
+file_path = 'dados.xlsx'
+
+try:
+    # Lê as primeiras 15 linhas cruas para calibração
+    df_raw = pd.read_excel(file_path, engine='openpyxl', header=None, nrows=15)
+except FileNotFoundError:
+    st.error(f"🚨 Arquivo '{file_path}' não encontrado no GitHub. Verifique o nome.")
+    st.stop()
+
+# --- 2. A Ferramenta de Calibração (O Salvador da Pátria) ---
+with st.expander("🛠️ CLIQUE AQUI SE OS DADOS ESTIVEREM ESTRANHOS (Calibrar Planilha)", expanded=True):
+    st.write("Olhe a tabela abaixo. A linha destacada em **AMARELO** deve conter os títulos (Data, Valor, Status).")
     
+    # Slider para escolher a linha de cabeçalho
+    header_row_idx = st.number_input(
+        "Em qual linha estão os títulos das colunas? (0 é a primeira linha)", 
+        min_value=0, max_value=10, value=3, step=1
+    )
+    
+    # Mostra visualmente qual linha está sendo escolhida
+    def highlight_row(x):
+        color = 'background-color: #f1c40f' if x.name == header_row_idx else ''
+        return [color] * len(x)
+        
+    st.dataframe(df_raw.style.apply(highlight_row, axis=1), use_container_width=True)
+    st.caption("Ajuste o número acima até a linha amarela ser a linha dos Títulos.")
+
+# --- 3. Processamento Real ---
+# Agora recarregamos o arquivo inteiro usando a linha que VOCÊ escolheu
+@st.cache_data(show_spinner=False)
+def load_final_data(row_idx):
     try:
-        # Tenta ler o Excel. skiprows=3 assume que o cabeçalho está na linha 4
-        df = pd.read_excel(file_path, engine='openpyxl', skiprows=3)
-    except FileNotFoundError:
-        st.error(f"🚨 Arquivo '{file_path}' não encontrado. Verifique o GitHub.")
-        st.stop()
-    except Exception as e:
-        st.error(f"Erro ao ler Excel: {e}")
-        st.stop()
-
-    # --- Tratamento de Colunas (O Pulo do Gato para não dar Erro) ---
-    # Normaliza nomes das colunas (tudo minusculo)
-    df.columns = df.columns.astype(str).str.lower().str.strip()
-    
-    # Procura colunas chaves por palavras-chave
-    col_data = next((c for c in df.columns if 'vencimento' in c or 'data' in c), None)
-    col_valor = next((c for c in df.columns if 'valor' in c or 'original' in c), None)
-    col_pago = next((c for c in df.columns if 'pago' in c or 'quitado' in c), None)
-    col_status = next((c for c in df.columns if 'status' in c or 'situação' in c or 'situacao' in c), None)
-
-    # Se não achar a coluna Data ou Valor, não tem como trabalhar
-    if not col_data or not col_valor:
-        st.error("⚠️ Não consegui identificar as colunas de 'Data' ou 'Valor' no Excel. Verifique os nomes.")
-        st.write("Colunas encontradas:", df.columns.tolist())
-        st.stop()
-
-    # Renomeia para o padrão do sistema
-    rename_map = {col_data: 'Data', col_valor: 'Valor'}
-    if col_pago: rename_map[col_pago] = 'Pago'
-    if col_status: rename_map[col_status] = 'Status'
-    
-    df = df.rename(columns=rename_map)
-
-    # --- Limpeza de Valores ---
-    def clean_money(x):
-        if isinstance(x, str):
-            clean = x.replace('R$', '').replace(' ', '').replace('.', '').replace(',', '.')
-            try: return float(clean)
-            except: return 0.0
-        return float(x) if isinstance(x, (int, float)) else 0.0
-
-    df['Valor'] = df['Valor'].apply(clean_money)
-    
-    # Se não existe coluna 'Pago', cria zerada
-    if 'Pago' not in df.columns:
-        df['Pago'] = 0.0
-    else:
-        df['Pago'] = df['Pago'].apply(clean_money).fillna(0)
-
-    # Se não existe coluna 'Status', cria baseada no pagamento (Inteligência Artificial de Bolso)
-    if 'Status' not in df.columns:
-        # Se pagou algo, considera Pago, senão Pendente
-        df['Status'] = df.apply(lambda row: 'Pago' if row['Pago'] >= row['Valor'] * 0.9 else 'Pendente', axis=1)
-    else:
-        # Garante que status vazio seja 'Pendente'
-        df['Status'] = df['Status'].fillna('Pendente').astype(str)
-
-    # Datas
-    df['Data'] = pd.to_datetime(df['Data'], dayfirst=True, errors='coerce')
-    df = df.dropna(subset=['Data']).sort_values('Data')
-
+        df = pd.read_excel(file_path, engine='openpyxl', header=row_idx)
+    except:
+        return pd.DataFrame()
     return df
 
-# Carrega os dados
-df_full = get_data()
+df = load_final_data(header_row_idx)
 
-# --- BARRA LATERAL (Filtros Interativos) ---
-st.sidebar.header("🔍 Filtros")
+if df.empty:
+    st.warning("Aguardando calibração...")
+    st.stop()
 
-# Filtro de Status
-status_options = df_full['Status'].unique()
-selected_status = st.sidebar.multiselect("Status da Parcela", options=status_options, default=status_options)
+# --- 4. Mapeamento de Colunas (Sem erros de Key) ---
+# Normaliza nomes
+df.columns = df.columns.astype(str).str.lower().str.strip()
 
-# Filtro de Data (Ano)
-years = sorted(df_full['Data'].dt.year.unique())
-selected_years = st.sidebar.multiselect("Ano de Vencimento", options=years, default=years)
+# Localiza colunas automaticamente
+col_data = next((c for c in df.columns if 'vencimento' in c or 'data' in c), None)
+col_valor = next((c for c in df.columns if 'valor' in c or 'original' in c), None)
+col_pago = next((c for c in df.columns if 'pago' in c or 'quitado' in c), None)
+col_status = next((c for c in df.columns if 'status' in c or 'situação' in c or 'situacao' in c), None)
 
-# Aplica Filtros
-df = df_full[
-    (df_full['Status'].isin(selected_status)) & 
-    (df_full['Data'].dt.year.isin(selected_years))
-]
+if not col_data or not col_valor:
+    st.error(f"⚠️ Não identifiquei colunas de DATA ou VALOR na linha {header_row_idx}. Mude o número da linha acima.")
+    st.stop()
 
-# --- KPIs Principais ---
-st.title("📊 Painel de Controle Financeiro")
+# Renomeia
+rename_map = {col_data: 'Data', col_valor: 'Valor'}
+if col_pago: rename_map[col_pago] = 'Pago'
+if col_status: rename_map[col_status] = 'Status'
+df = df.rename(columns=rename_map)
 
-total_divida = df_full['Valor'].sum() # Valor total independente do filtro (para referência)
-total_filtrado = df['Valor'].sum()
-pago_filtrado = df['Pago'].sum()
-saldo_aberto = total_filtrado - pago_filtrado
-qtd_parcelas = len(df)
+# --- 5. Limpeza de Dados (Versão Anti-Bomba) ---
+def clean_money(x):
+    if isinstance(x, str):
+        clean = x.replace('R$', '').replace(' ', '').replace('.', '').replace(',', '.')
+        try: return float(clean)
+        except: return 0.0
+    return float(x) if isinstance(x, (int, float)) else 0.0
 
-# Métricas no topo
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Saldo em Aberto (Filtro)", f"R$ {saldo_aberto:,.2f}", delta_color="inverse")
-c2.metric("Total Quitado (Filtro)", f"R$ {pago_filtrado:,.2f}")
-c3.metric("Valor Original (Filtro)", f"R$ {total_filtrado:,.2f}")
-c4.metric("Parcelas Listadas", f"{qtd_parcelas}")
+df['Valor'] = df['Valor'].apply(clean_money)
 
-st.divider()
+if 'Pago' not in df.columns: df['Pago'] = 0.0
+else: df['Pago'] = df['Pago'].apply(clean_money).fillna(0)
 
-# --- VISUALIZAÇÃO GRÁFICA ---
-col_left, col_right = st.columns([2, 1])
+# Define Status se não existir
+if 'Status' not in df.columns:
+    df['Status'] = df.apply(lambda row: 'Pago' if row['Pago'] >= row['Valor'] * 0.9 else 'Pendente', axis=1)
 
-with col_left:
-    st.subheader("📈 Evolução do Saldo Devedor")
-    # Calcula o acumulado para mostrar a dívida caindo ou subindo
-    df_chart = df.sort_values('Data').copy()
-    df_chart['Acumulado'] = df_chart['Valor'].cumsum()
-    
-    # Gráfico de Linha x Barras
-    fig_evolucao = go.Figure()
-    fig_evolucao.add_trace(go.Bar(
-        x=df_chart['Data'], y=df_chart['Valor'], name='Valor da Parcela', marker_color='#bdc3c7', opacity=0.6
-    ))
-    fig_evolucao.add_trace(go.Scatter(
-        x=df_chart['Data'], y=df_chart['Pago'], mode='markers', name='Pagamentos Realizados', marker=dict(color='green', size=8)
-    ))
-    fig_evolucao.update_layout(template="plotly_white", height=400, xaxis_title="Vencimento")
-    st.plotly_chart(fig_evolucao, use_container_width=True)
+# Datas
+df['Data'] = pd.to_datetime(df['Data'], dayfirst=True, errors='coerce')
+df = df.dropna(subset=['Data']).sort_values('Data')
 
-with col_right:
-    st.subheader("Situação Atual")
-    # Gráfico de Rosca
-    fig_pie = px.pie(df, names='Status', values='Valor', hole=0.5, color='Status',
-                     color_discrete_map={'Pago': '#2ecc71', 'Pendente': '#e74c3c', 'Atrasado': '#f1c40f'})
-    fig_pie.update_layout(height=400, legend=dict(orientation="h", y=-0.1))
-    st.plotly_chart(fig_pie, use_container_width=True)
+# --- 6. O Dashboard Visual ---
+st.markdown("---")
 
-# --- TABELA DETALHADA (O que você pediu) ---
-st.subheader("📋 Detalhamento das Parcelas")
-st.caption("Use os filtros na barra lateral para ver apenas o que está pendente ou pago.")
+# KPIs
+total = df['Valor'].sum()
+pago = df['Pago'].sum()
+aberto = total - pago
 
-# Formata para exibir bonito (R$) mas mantém o dado real
-df_display = df.copy()
-df_display['Data'] = df_display['Data'].dt.strftime('%d/%m/%Y')
-df_display['Valor'] = df_display['Valor'].apply(lambda x: f"R$ {x:,.2f}")
-df_display['Pago'] = df_display['Pago'].apply(lambda x: f"R$ {x:,.2f}")
+c1, c2, c3 = st.columns(3)
+def card(col, label, val, color):
+    col.markdown(f"""
+    <div class="metric-card" style="border-left-color: {color}">
+        <div class="metric-label">{label}</div>
+        <div class="metric-value">R$ {val:,.2f}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# Mostra TODAS as colunas para você ver o que tem lá
+card(c1, "Total Contratado", total, "#2980b9")
+card(c2, "Total Pago", pago, "#27ae60")
+card(c3, "Saldo Devedor", aberto, "#c0392b")
+
+# Tabela Interativa
+st.subheader("📋 Dados da Planilha (Verificados)")
 st.dataframe(
-    df_display, 
-    use_container_width=True, 
-    hide_index=True,
-    column_config={
-        "Status": st.column_config.TextColumn(
-            "Status",
-            help="Situação atual da parcela",
-            validate="^(Pago|Pendente)$"
-        )
-    }
+    df[['Data', 'Valor', 'Pago', 'Status']].style.format({'Valor': 'R$ {:,.2f}', 'Pago': 'R$ {:,.2f}'}),
+    use_container_width=True
 )
