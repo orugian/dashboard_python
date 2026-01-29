@@ -6,9 +6,8 @@ from datetime import datetime
 
 # --- Configuração da Página ---
 st.set_page_config(
-    page_title="Gestão Financeira: Syssant",
+    page_title="Gestão Financeira: EmpresaX",
     layout="wide",
-    page_icon="💎"
 )
 
 # --- Estilo CSS Premium ---
@@ -223,3 +222,4 @@ st.dataframe(
         "Valor Ajustado (Devido)": st.column_config.Column("Vlr Final (Devido)", help="Valor com juros inclusos")
     }
 )
+
